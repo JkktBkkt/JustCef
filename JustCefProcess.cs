@@ -117,7 +117,8 @@ namespace JustCef
             WindowLoadStart = 13,
             WindowLoadEnd = 14,
             WindowLoadError = 15,
-            WindowDevToolsEvent = 16
+            WindowDevToolsEvent = 16,
+            WindowDragEnter = 17
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -809,10 +810,63 @@ namespace JustCef
                     GetWindow(identifier)?.InvokeOnDevToolsEvent(method, parameters);
                     break;
                 }
+                case OpcodeClientNotification.WindowDragEnter:
+                {
+                    int identifier = reader.Read<int>();
+                    var dragData = ReadDragData(reader);
+                    GetWindow(identifier)?.InvokeOnDragEnter(dragData);
+                    break;
+                }
                 default:
                     Logger.Info<JustCefProcess>($"Received unhandled notification opcode {opcode}.");
                     break;
             }
+        }
+
+        private static JustCefDragData ReadDragData(PacketReader reader)
+        {
+            static JustCefDragContent[] ReadContents(PacketReader packetReader)
+            {
+                int count = packetReader.Read<int>();
+                var contents = new JustCefDragContent[count];
+                for (int i = 0; i < count; i++)
+                {
+                    var kind = (JustCefDragContentKind)packetReader.Read<byte>();
+                    var value = packetReader.ReadSizePrefixedString() ?? string.Empty;
+                    contents[i] = new JustCefDragContent(kind, value);
+                }
+
+                return contents;
+            }
+
+            var hasCoordinates = reader.Read<bool>();
+            int? clientX = null;
+            int? clientY = null;
+            int? screenX = null;
+            int? screenY = null;
+            if (hasCoordinates)
+            {
+                clientX = reader.Read<int>();
+                clientY = reader.Read<int>();
+                screenX = reader.Read<int>();
+                screenY = reader.Read<int>();
+            }
+
+            var allowedOperations = (JustCefDragOperationsMask)reader.Read<uint>();
+            var isReadOnly = reader.Read<bool>();
+            var hasImage = reader.Read<bool>();
+            var contents = ReadContents(reader);
+
+            return new JustCefDragData
+            {
+                AllowedOperations = allowedOperations,
+                IsReadOnly = isReadOnly,
+                HasImage = hasImage,
+                Contents = contents,
+                Position = hasCoordinates
+                    ? new JustCefDragPosition(clientX!.Value, clientY!.Value, screenX!.Value, screenY!.Value)
+                    : null
+            };
         }
 
         public static RentedBuffer<byte> RentedBytesFromStruct<TStruct>(TStruct s) where TStruct : struct

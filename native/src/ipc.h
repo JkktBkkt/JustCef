@@ -2,6 +2,7 @@
 #define IPC_H
 
 #include "pipe.h"
+#include "include/cef_drag_data.h"
 #include "include/cef_keyboard_handler.h"
 #include "include/cef_response.h"
 #include "work_queue.h"
@@ -123,7 +124,8 @@ enum class OpcodeClientNotification : uint8_t {
     WindowLoadStart = 13,
     WindowLoadEnd = 14,
     WindowLoadError = 15,
-    WindowDevToolsEvent = 16
+    WindowDevToolsEvent = 16,
+    WindowDragEnter = 17
 };
 
 typedef struct _IPCPendingRequest {
@@ -238,6 +240,7 @@ public:
     void NotifyWindowLoadEnd(CefRefPtr<CefBrowser> browser, const CefString& url);
     void NotifyWindowLoadError(CefRefPtr<CefBrowser> browser, cef_errorcode_t errorCode, const CefString& errorText, const CefString& url);
     void NotifyWindowDevToolsEvent(CefRefPtr<CefBrowser> browser, const CefString& method, const uint8_t* result, size_t result_size);
+    void NotifyWindowDragEnter(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDragData> dragData, cef_drag_operations_mask_t mask);
 
     void QueueWork(std::function<void()> work) 
     {

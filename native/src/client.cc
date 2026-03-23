@@ -405,7 +405,6 @@ R"JS(
   }, { capture: true });
 })();
 )JS";
-
         frame->ExecuteJavaScript(js.str(), frame->GetURL(), 0);
     }
 }
@@ -442,6 +441,19 @@ void Client::OnGotFocus(CefRefPtr<CefBrowser> browser)
     IPC::Singleton.QueueWork([browser]() {
         IPC::Singleton.NotifyWindowFocused(browser);
     });
+}
+
+bool Client::OnDragEnter(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDragData> dragData, cef_drag_operations_mask_t mask)
+{
+    CEF_REQUIRE_UI_THREAD();
+
+    CefRefPtr<CefDragData> dragDataClone = dragData ? dragData->Clone() : nullptr;
+
+    IPC::Singleton.QueueWork([browser, dragDataClone, mask]() {
+        IPC::Singleton.NotifyWindowDragEnter(browser, dragDataClone, mask);
+    });
+
+    return false;
 }
 
 void Client::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefContextMenuParams> params, CefRefPtr<CefMenuModel> model)

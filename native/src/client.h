@@ -16,6 +16,7 @@ class Client : public CefClient,
     public CefLifeSpanHandler,
     public CefLoadHandler,
     public CefFocusHandler,
+    public CefDragHandler,
     public CefContextMenuHandler,
     public CefKeyboardHandler,
     public CefRequestHandler,
@@ -29,6 +30,7 @@ class Client : public CefClient,
     CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
     CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
     CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
+    CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
     CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
     CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
     CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
@@ -51,6 +53,8 @@ class Client : public CefClient,
     // CefFocusHandler methods:
     void OnTakeFocus(CefRefPtr<CefBrowser> browser, bool next) override;
     void OnGotFocus(CefRefPtr<CefBrowser> browser) override;
+    // CefDragHandler methods:
+    bool OnDragEnter(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDragData> dragData, cef_drag_operations_mask_t mask) override;
     // CefContextMenuHandler methods:
     void OnBeforeContextMenu(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefContextMenuParams> params, CefRefPtr<CefMenuModel> model) override;
     // CefKeyboardHandler methods:

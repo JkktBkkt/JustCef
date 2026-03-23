@@ -983,6 +983,67 @@ void IPC::WindowModifyRequest(int32_t identifier, CefRefPtr<CefRequest> request,
     }
 }
 
+namespace {
+constexpr uint8_t kDragContentKindLinkUrl = 1;
+constexpr uint8_t kDragContentKindLinkTitle = 2;
+constexpr uint8_t kDragContentKindLinkMetadata = 3;
+constexpr uint8_t kDragContentKindFragmentText = 4;
+constexpr uint8_t kDragContentKindFragmentHtml = 5;
+constexpr uint8_t kDragContentKindFragmentBaseUrl = 6;
+constexpr uint8_t kDragContentKindFilePath = 7;
+
+void WriteDragData(PacketWriter& writer, CefRefPtr<CefDragData> dragData, cef_drag_operations_mask_t mask) {
+    std::vector<CefString> filePaths;
+    std::vector<std::pair<uint8_t, std::string>> contents;
+
+    const bool isReadOnly = dragData ? dragData->IsReadOnly() : false;
+    const bool hasImage = dragData ? dragData->HasImage() : false;
+
+    std::string linkUrl;
+    std::string linkTitle;
+    std::string linkMetadata;
+    std::string fragmentText;
+    std::string fragmentHtml;
+    std::string fragmentBaseUrl;
+
+    if (dragData) {
+        linkUrl = dragData->GetLinkURL().ToString();
+        linkTitle = dragData->GetLinkTitle().ToString();
+        linkMetadata = dragData->GetLinkMetadata().ToString();
+        fragmentText = dragData->GetFragmentText().ToString();
+        fragmentHtml = dragData->GetFragmentHtml().ToString();
+        fragmentBaseUrl = dragData->GetFragmentBaseURL().ToString();
+        dragData->GetFilePaths(filePaths);
+    }
+
+    auto addContent = [&contents](uint8_t kind, const std::string& value) {
+        if (!value.empty())
+            contents.emplace_back(kind, value);
+    };
+
+    addContent(kDragContentKindLinkUrl, linkUrl);
+    addContent(kDragContentKindLinkTitle, linkTitle);
+    addContent(kDragContentKindLinkMetadata, linkMetadata);
+    addContent(kDragContentKindFragmentText, fragmentText);
+    addContent(kDragContentKindFragmentHtml, fragmentHtml);
+    addContent(kDragContentKindFragmentBaseUrl, fragmentBaseUrl);
+    for (const auto& path : filePaths)
+        addContent(kDragContentKindFilePath, path.ToString());
+
+    writer.write(false);
+
+    writer.write(static_cast<uint32_t>(mask));
+    writer.write(isReadOnly);
+    writer.write(hasImage);
+
+    writer.write(static_cast<int32_t>(contents.size()));
+    for (const auto& [kind, value] : contents) {
+        writer.write(kind);
+        writer.writeSizePrefixedString(value);
+    }
+}
+}
+
 void IPC::NotifyWindowOpened(CefRefPtr<CefBrowser> browser)
 {
     uint8_t packet[sizeof(int32_t)];
@@ -1108,6 +1169,14 @@ void IPC::NotifyWindowLoadError(CefRefPtr<CefBrowser> browser, cef_errorcode_t e
     writer.writeSizePrefixedString(errorText);
     writer.writeSizePrefixedString(url);
     Notify(OpcodeClientNotification::WindowLoadError, writer);
+}
+
+void IPC::NotifyWindowDragEnter(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDragData> dragData, cef_drag_operations_mask_t mask)
+{
+    PacketWriter writer;
+    writer.write(browser->GetIdentifier());
+    WriteDragData(writer, dragData, mask);
+    Notify(OpcodeClientNotification::WindowDragEnter, writer);
 }
 
 #ifdef _WIN32
