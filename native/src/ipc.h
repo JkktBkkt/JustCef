@@ -123,7 +123,8 @@ enum class OpcodeClientNotification : uint8_t {
     WindowLoadStart = 13,
     WindowLoadEnd = 14,
     WindowLoadError = 15,
-    WindowDevToolsEvent = 16
+    WindowDevToolsEvent = 16,
+    WindowDropped = 17
 };
 
 typedef struct _IPCPendingRequest {
@@ -183,6 +184,7 @@ typedef struct _IPCWindowCreate
     bool modifyRequestBody = false;
     bool proxyRequests = false;
     bool logConsole = false;
+    bool integratedDropBridgeEnabled = false;
     int minimumWidth = 800;
     int minimumHeight = 600;
     int preferredWidth = 1024;
@@ -238,6 +240,7 @@ public:
     void NotifyWindowLoadEnd(CefRefPtr<CefBrowser> browser, const CefString& url);
     void NotifyWindowLoadError(CefRefPtr<CefBrowser> browser, cef_errorcode_t errorCode, const CefString& errorText, const CefString& url);
     void NotifyWindowDevToolsEvent(CefRefPtr<CefBrowser> browser, const CefString& method, const uint8_t* result, size_t result_size);
+    void NotifyWindowDropped(int identifier, int32_t operationsMask, bool isFile, bool isLink, bool isFragment, const std::vector<std::string>& filePaths, const std::vector<std::string>& fileNames, const std::optional<std::string>& linkUrl, const std::optional<std::string>& linkTitle, const std::optional<std::string>& linkMetadata, const std::optional<std::string>& fragmentText, const std::optional<std::string>& fragmentHtml, const std::optional<std::string>& fragmentBaseUrl);
 
     void QueueWork(std::function<void()> work) 
     {

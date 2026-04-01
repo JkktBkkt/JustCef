@@ -1,4 +1,4 @@
-//#define HARDCODED_PATHS
+#define HARDCODED_PATHS
 
 using System.Buffers;
 using System.Buffers.Binary;
@@ -117,7 +117,8 @@ namespace JustCef
             WindowLoadStart = 13,
             WindowLoadEnd = 14,
             WindowLoadError = 15,
-            WindowDevToolsEvent = 16
+            WindowDevToolsEvent = 16,
+            WindowDropped = 17
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -828,6 +829,34 @@ namespace JustCef
                     GetWindow(identifier)?.InvokeOnDevToolsEvent(method, parameters);
                     break;
                 }
+                case OpcodeClientNotification.WindowDropped:
+                {
+                    int identifier = reader.Read<int>();
+                    int operationsMask = reader.Read<int>();
+                    bool isFile = reader.Read<bool>();
+                    bool isLink = reader.Read<bool>();
+                    bool isFragment = reader.Read<bool>();
+
+                    int filePathCount = reader.Read<int>();
+                    string[] filePaths = new string[filePathCount];
+                    for (int i = 0; i < filePathCount; i++)
+                        filePaths[i] = reader.ReadSizePrefixedString() ?? string.Empty;
+
+                    int fileNameCount = reader.Read<int>();
+                    string[] fileNames = new string[fileNameCount];
+                    for (int i = 0; i < fileNameCount; i++)
+                        fileNames[i] = reader.ReadSizePrefixedString() ?? string.Empty;
+
+                    string? linkUrl = reader.Read<bool>() ? reader.ReadSizePrefixedString() : null;
+                    string? linkTitle = reader.Read<bool>() ? reader.ReadSizePrefixedString() : null;
+                    string? linkMetadata = reader.Read<bool>() ? reader.ReadSizePrefixedString() : null;
+                    string? fragmentText = reader.Read<bool>() ? reader.ReadSizePrefixedString() : null;
+                    string? fragmentHtml = reader.Read<bool>() ? reader.ReadSizePrefixedString() : null;
+                    string? fragmentBaseUrl = reader.Read<bool>() ? reader.ReadSizePrefixedString() : null;
+
+                    GetWindow(identifier)?.InvokeOnDrop(new JustCefDropData(operationsMask, isFile, isLink, isFragment, filePaths, fileNames, linkUrl, linkTitle, linkMetadata, fragmentText, fragmentHtml, fragmentBaseUrl));
+                    break;
+                }
                 default:
                     Logger.Info<JustCefProcess>($"Received unhandled notification opcode {opcode}.");
                     break;
@@ -1063,7 +1092,7 @@ namespace JustCef
         public async Task<JustCefWindow> CreateWindowAsync(string url, int minimumWidth, int minimumHeight, int preferredWidth = 0, int preferredHeight = 0,
             bool fullscreen = false, bool contextMenuEnable = false, bool shown = true, bool developerToolsEnabled = false, bool resizable = true, bool frameless = false,
             bool centered = true, bool proxyRequests = false, bool logConsole = false, Func<JustCefWindow, IPCRequest, Task<IPCResponse?>>? requestProxy = null, bool modifyRequests = false, Func<JustCefWindow, IPCRequest, IPCRequest?>? requestModifier = null, bool modifyRequestBody = false,
-            string? title = null, string? iconPath = null, string? appId = null, CancellationToken cancellationToken = default)
+            string? title = null, string? iconPath = null, string? appId = null, bool integratedDropBridgeEnabled = false, CancellationToken cancellationToken = default)
         {
             EnsureStarted();
 
@@ -1083,6 +1112,7 @@ namespace JustCef
 
             writer.Write(proxyRequests);
             writer.Write(logConsole);
+            writer.Write(integratedDropBridgeEnabled);
             writer.Write(minimumWidth);
             writer.Write(minimumHeight);
             writer.Write(preferredWidth);

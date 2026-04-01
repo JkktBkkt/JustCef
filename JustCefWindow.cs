@@ -15,6 +15,7 @@ namespace JustCef
         public event Action<string?>? OnLoadEnd;
         public event Action<int, string?, string?>? OnLoadError;
         public event Action<string?, byte[]>? OnDevToolsEvent;
+        public event Action<JustCefDropData>? OnDrop;
 
         private Func<JustCefWindow, IPCRequest, IPCRequest?>? _requestModifier;
         private Func<JustCefWindow, IPCRequest, Task<IPCResponse?>>? _requestProxy;
@@ -115,6 +116,7 @@ namespace JustCef
         public void InvokeOnLoadEnd(string? url) => OnLoadEnd?.Invoke(url);
         public void InvokeOnLoadError(int errorCode, string? errorText, string? failedUrl) => OnLoadError?.Invoke(errorCode, errorText, failedUrl);
         public void InvokeOnDevToolsEvent(string? method, byte[] parameters) => OnDevToolsEvent?.Invoke(method, parameters);
+        public void InvokeOnDrop(JustCefDropData data) => OnDrop?.Invoke(data);
 
         public void WaitForExit() => _closeCompletionSource.Task.Wait();
         public async Task WaitForExitAsync(CancellationToken cancellationToken = default) 

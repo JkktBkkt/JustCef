@@ -1100,6 +1100,49 @@ void IPC::NotifyWindowDevToolsEvent(CefRefPtr<CefBrowser> browser, const CefStri
     Notify(OpcodeClientNotification::WindowDevToolsEvent, writer);
 }
 
+void IPC::NotifyWindowDropped(int identifier, int32_t operationsMask, bool isFile, bool isLink, bool isFragment, const std::vector<std::string>& filePaths, const std::vector<std::string>& fileNames, const std::optional<std::string>& linkUrl, const std::optional<std::string>& linkTitle, const std::optional<std::string>& linkMetadata, const std::optional<std::string>& fragmentText, const std::optional<std::string>& fragmentHtml, const std::optional<std::string>& fragmentBaseUrl) 
+{
+    PacketWriter writer;
+    writer.write(identifier);
+    writer.write(operationsMask);
+    writer.write(isFile);
+    writer.write(isLink);
+    writer.write(isFragment);
+    writer.write(static_cast<int32_t>(filePaths.size()));
+    for (const auto& path : filePaths) {
+        writer.writeSizePrefixedString(path);
+    }
+    writer.write(static_cast<int32_t>(fileNames.size()));
+    for (const auto& name : fileNames) {
+        writer.writeSizePrefixedString(name);
+    }
+    writer.write(linkUrl.has_value());
+    if (linkUrl) {
+        writer.writeSizePrefixedString(*linkUrl);
+    }
+    writer.write(linkTitle.has_value());
+    if (linkTitle) {
+        writer.writeSizePrefixedString(*linkTitle);
+    }
+    writer.write(linkMetadata.has_value());
+    if (linkMetadata) {
+        writer.writeSizePrefixedString(*linkMetadata);
+    }
+    writer.write(fragmentText.has_value());
+    if (fragmentText) {
+        writer.writeSizePrefixedString(*fragmentText);
+    }
+    writer.write(fragmentHtml.has_value());
+    if (fragmentHtml) {
+        writer.writeSizePrefixedString(*fragmentHtml);
+    }
+    writer.write(fragmentBaseUrl.has_value());
+    if (fragmentBaseUrl) {
+        writer.writeSizePrefixedString(*fragmentBaseUrl);
+    }
+    Notify(OpcodeClientNotification::WindowDropped, writer);
+}
+
 void IPC::NotifyWindowLoadError(CefRefPtr<CefBrowser> browser, cef_errorcode_t errorCode, const CefString& errorText, const CefString& url)
 {
     PacketWriter writer;
@@ -1265,13 +1308,18 @@ CefRefPtr<Client> CreateBrowserWindow(const IPCWindowCreate& windowCreate)
 
     CefRefPtr<Client> client = new Client(windowCreate);
     CefBrowserSettings settings;
+    CefRefPtr<CefDictionaryValue> extra_info = nullptr;
+    if (windowCreate.integratedDropBridgeEnabled) {
+        extra_info = CefDictionaryValue::Create();
+        extra_info->SetBool("integratedDropBridgeEnabled", true);
+    }
 
     if (headless) {
         CefWindowInfo wi;
         wi.SetAsWindowless(kNullWindowHandle);
         wi.bounds.width = windowCreate.preferredWidth;
         wi.bounds.height = windowCreate.preferredHeight;
-        CefBrowserHost::CreateBrowserSync(wi, client, windowCreate.url, settings, nullptr, nullptr);
+        CefBrowserHost::CreateBrowserSync(wi, client, windowCreate.url, settings, extra_info, nullptr);
 
         return client;
     }
@@ -1285,7 +1333,7 @@ CefRefPtr<Client> CreateBrowserWindow(const IPCWindowCreate& windowCreate)
 
     if (use_views)
     {
-        CefRefPtr<CefBrowserView> browser_view = CefBrowserView::CreateBrowserView(client, windowCreate.url, settings, nullptr, nullptr, new BrowserViewDelegate(windowCreate, runtime_style));
+        CefRefPtr<CefBrowserView> browser_view = CefBrowserView::CreateBrowserView(client, windowCreate.url, settings, extra_info, nullptr, new BrowserViewDelegate(windowCreate, runtime_style));
         CefWindow::CreateTopLevelWindow(new WindowDelegate(browser_view, runtime_style, showState, windowCreate));
     } 
     else 
@@ -1330,7 +1378,7 @@ CefRefPtr<Client> CreateBrowserWindow(const IPCWindowCreate& windowCreate)
         // TODO: Copy over window name
         // cef_string_copy(windowName.c_str(), windowName.length(), &window_name);
 
-        CefBrowserHost::CreateBrowserSync(window_info, client, windowCreate.url, settings, nullptr, nullptr);
+        CefBrowserHost::CreateBrowserSync(window_info, client, windowCreate.url, settings, extra_info, nullptr);
     }
 
     return client;
@@ -1360,6 +1408,7 @@ CefRefPtr<Client> HandleWindowCreateInternal(PacketReader& reader, PacketWriter&
     std::optional<bool> modifyRequestBody = reader.read<bool>();
     std::optional<bool> proxyRequests = reader.read<bool>();
     std::optional<bool> logConsole = reader.read<bool>();
+    std::optional<bool> integratedDropBridgeEnabled = reader.read<bool>();
     std::optional<int32_t> minimumWidth = reader.read<int32_t>();
     std::optional<int32_t> minimumHeight = reader.read<int32_t>();
     std::optional<int32_t> preferredWidth = reader.read<int32_t>();
@@ -1368,7 +1417,7 @@ CefRefPtr<Client> HandleWindowCreateInternal(PacketReader& reader, PacketWriter&
     std::optional<std::string> title = reader.readSizePrefixedString();
     std::optional<std::string> iconPath = reader.readSizePrefixedString();
     if (!resizable || !frameless || !fullscreen || !centered || !shown || !contextMenuEnable || !developerToolsEnabled || !modifyRequests
-        || !modifyRequestBody || !proxyRequests || !logConsole || !minimumWidth || !minimumHeight || !preferredWidth || !preferredHeight || !url) {
+        || !modifyRequestBody || !proxyRequests || !logConsole || !integratedDropBridgeEnabled || !minimumWidth || !minimumHeight || !preferredWidth || !preferredHeight || !url) {
 
         LOG(ERROR) << "HandleWindowCreate called without valid data. Ignored.";
         return nullptr;
@@ -1386,6 +1435,7 @@ CefRefPtr<Client> HandleWindowCreateInternal(PacketReader& reader, PacketWriter&
     windowCreate.modifyRequestBody = *modifyRequestBody;
     windowCreate.proxyRequests = *proxyRequests;
     windowCreate.logConsole = *logConsole;
+    windowCreate.integratedDropBridgeEnabled = *integratedDropBridgeEnabled;
     windowCreate.minimumWidth = *minimumWidth;
     windowCreate.minimumHeight = *minimumHeight;
     windowCreate.preferredWidth = *preferredWidth;

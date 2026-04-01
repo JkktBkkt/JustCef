@@ -1,5 +1,7 @@
 #pragma once
 
+#include "process_messages.h"
+
 #include <cstdint>
 #include <string>
 #include <mutex>
@@ -21,8 +23,6 @@
 #else
     #error Unsupported platform
 #endif
-
-static constexpr char kOskMsg[] = "steam_osk";
 
 enum EFloatingGamepadTextInputMode {
     k_EFloatingGamepadTextInputModeModeSingleLine = 0,

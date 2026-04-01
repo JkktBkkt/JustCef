@@ -11,6 +11,7 @@
 #include "client_util.h"
 #include "ipc.h"
 #include "devtoolsclient.h"
+#include "process_messages.h"
 #include "stb_image.h"
 #include "steam.h"
 
@@ -323,6 +324,7 @@ bool Client::DoClose(CefRefPtr<CefBrowser> browser) {
     LOG(INFO) << "DoClose called " << browser->GetIdentifier();
 
     CEF_REQUIRE_UI_THREAD();
+    ClearPendingDrop();
     shared::CancelPendingFileDialogs(browser->GetIdentifier());
 
     // Closing the main window requires special handling. See the DoClose()
@@ -340,6 +342,7 @@ void Client::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
     LOG(INFO) << "OnBeforeClose called " << browser->GetIdentifier();
 
     CEF_REQUIRE_UI_THREAD();
+    ClearPendingDrop();
     shared::CancelPendingFileDialogs(browser->GetIdentifier());
 
 #if _WIN32
@@ -414,6 +417,10 @@ R"JS(
 
 void Client::OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, TransitionType transition_type) 
 {
+    if (settings.integratedDropBridgeEnabled && frame && frame->IsMain()) {
+        ClearPendingDrop();
+    }
+
     IPC::Singleton.QueueWork([browser, frame]() {
         IPC::Singleton.NotifyWindowLoadStart(browser, frame->GetURL());
     });
@@ -497,6 +504,108 @@ bool Client::OnKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event,
                 return false;
         }
     }
+    return false;
+}
+
+bool Client::OnDragEnter(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDragData> dragData, cef_drag_operations_mask_t mask)
+{
+    CEF_REQUIRE_UI_THREAD();
+
+    LOG(INFO) << "OnDragEnter called for browser "
+              << (browser ? browser->GetIdentifier() : 0)
+              << " (bridgeEnabled = " << (settings.integratedDropBridgeEnabled ? "true" : "false")
+              << ", dragData = " << (dragData ? "present" : "null")
+              << ", mask = " << static_cast<int32_t>(mask) << ").";
+
+    if (!settings.integratedDropBridgeEnabled) {
+        return false;
+    }
+
+    ClearPendingDrop();
+
+    if (!dragData) {
+        return false;
+    }
+
+    _pendingDrop.operationsMask = static_cast<int32_t>(mask);
+    _pendingDrop.isFile = dragData->IsFile();
+    _pendingDrop.isLink = dragData->IsLink();
+    _pendingDrop.isFragment = dragData->IsFragment();
+    LOG(INFO) << "OnDragEnter flags: isFile = " << (_pendingDrop.isFile ? "true" : "false")
+              << ", isLink = " << (_pendingDrop.isLink ? "true" : "false")
+              << ", isFragment = " << (_pendingDrop.isFragment ? "true" : "false") << ".";
+
+    std::vector<CefString> filePaths;
+    const bool hasFilePaths = dragData->GetFilePaths(filePaths);
+    LOG(INFO) << "OnDragEnter GetFilePaths returned " << (hasFilePaths ? "true" : "false")
+              << " with " << filePaths.size() << " path(s).";
+    if (hasFilePaths) {
+        _pendingDrop.filePaths.reserve(filePaths.size());
+        for (const auto& filePath : filePaths) {
+            const std::string path = filePath.ToString();
+            if (!path.empty()) {
+                _pendingDrop.filePaths.push_back(path);
+            }
+        }
+    }
+
+    std::vector<CefString> fileNames;
+    const bool hasFileNames = dragData->GetFileNames(fileNames);
+    LOG(INFO) << "OnDragEnter GetFileNames returned " << (hasFileNames ? "true" : "false")
+              << " with " << fileNames.size() << " name(s).";
+    if (hasFileNames) {
+        _pendingDrop.fileNames.reserve(fileNames.size());
+        for (const auto& fileName : fileNames) {
+            const std::string name = fileName.ToString();
+            if (!name.empty()) {
+                _pendingDrop.fileNames.push_back(name);
+            }
+        }
+    }
+
+    const std::string linkUrl = dragData->GetLinkURL().ToString();
+    if (!linkUrl.empty()) {
+        _pendingDrop.linkUrl = linkUrl;
+    }
+    LOG(INFO) << "OnDragEnter linkUrl empty = " << (linkUrl.empty() ? "true" : "false") << ".";
+
+    const std::string linkTitle = dragData->GetLinkTitle().ToString();
+    if (!linkTitle.empty()) {
+        _pendingDrop.linkTitle = linkTitle;
+    }
+    LOG(INFO) << "OnDragEnter linkTitle empty = " << (linkTitle.empty() ? "true" : "false") << ".";
+
+    const std::string linkMetadata = dragData->GetLinkMetadata().ToString();
+    if (!linkMetadata.empty()) {
+        _pendingDrop.linkMetadata = linkMetadata;
+    }
+    LOG(INFO) << "OnDragEnter linkMetadata empty = " << (linkMetadata.empty() ? "true" : "false") << ".";
+
+    const std::string fragmentText = dragData->GetFragmentText().ToString();
+    if (!fragmentText.empty()) {
+        _pendingDrop.fragmentText = fragmentText;
+    }
+    LOG(INFO) << "OnDragEnter fragmentText empty = " << (fragmentText.empty() ? "true" : "false") << ".";
+
+    const std::string fragmentHtml = dragData->GetFragmentHtml().ToString();
+    if (!fragmentHtml.empty()) {
+        _pendingDrop.fragmentHtml = fragmentHtml;
+    }
+    LOG(INFO) << "OnDragEnter fragmentHtml empty = " << (fragmentHtml.empty() ? "true" : "false") << ".";
+
+    const std::string fragmentBaseUrl = dragData->GetFragmentBaseURL().ToString();
+    if (!fragmentBaseUrl.empty()) {
+        _pendingDrop.fragmentBaseUrl = fragmentBaseUrl;
+    }
+    LOG(INFO) << "OnDragEnter fragmentBaseUrl empty = " << (fragmentBaseUrl.empty() ? "true" : "false") << ".";
+
+    if (_pendingDrop.HasData()) {
+        LOG(INFO) << "Pending external drop captured for browser " << browser->GetIdentifier() << ".";
+    } else {
+        LOG(INFO) << "OnDragEnter produced no usable native drag payload.";
+        ClearPendingDrop();
+    }
+
     return false;
 }
 
@@ -950,6 +1059,36 @@ bool Client::OnConsoleMessage(CefRefPtr<CefBrowser> browser, cef_log_severity_t 
 }
 
 bool Client::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefProcessId source_process, CefRefPtr<CefProcessMessage> message) {
+    CEF_REQUIRE_UI_THREAD();
+
+    if (!settings.integratedDropBridgeEnabled && message->GetName() != kOskMsg) {
+        return false;
+    }
+
+    if (message->GetName() == kDropLocalDragStartedMsg) {
+        LOG(INFO) << "Drop bridge local drag started (hasPending = " << (_pendingDrop.HasData() ? "true" : "false") << ").";
+        if (_pendingDrop.HasData()) {
+            ClearPendingDrop();
+        }
+        return true;
+    }
+
+    if (message->GetName() == kDropBridgeCancelPendingExternalMsg) {
+        LOG(INFO) << "Drop bridge cancel received (hasPending = " << (_pendingDrop.HasData() ? "true" : "false") << ").";
+        if (_pendingDrop.HasData()) {
+            ClearPendingDrop();
+        }
+        return true;
+    }
+
+    if (message->GetName() == kDropBridgeCommitPendingExternalMsg) {
+        LOG(INFO) << "Drop bridge commit received (hasPending = " << (_pendingDrop.HasData() ? "true" : "false") << ").";
+        if (_pendingDrop.HasData()) {
+            CommitPendingDrop(browser);
+        }
+        return true;
+    }
+
     if (message->GetName() != kOskMsg) return false;
 
     LOG(INFO) << "OnProcessMessageReceived (name = " << message->GetName() << ", size = " << message->GetArgumentList()->GetSize() << ").";
@@ -973,6 +1112,36 @@ bool Client::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefRefPtr<C
     }
 
     return true;
+}
+
+void Client::ClearPendingDrop()
+{
+    _pendingDrop.Clear();
+}
+
+void Client::CommitPendingDrop(CefRefPtr<CefBrowser> browser)
+{
+    CEF_REQUIRE_UI_THREAD();
+
+    if (!_pendingDrop.HasData()) {
+        LOG(INFO) << "CommitPendingDrop ignored because there is no pending native drop payload.";
+        return;
+    }
+
+    if (!browser) {
+        LOG(INFO) << "CommitPendingDrop ignored because browser is null.";
+        ClearPendingDrop();
+        return;
+    }
+
+    PendingDropData drop = std::move(_pendingDrop);
+    ClearPendingDrop();
+
+    const int identifier = browser->GetIdentifier();
+    LOG(INFO) << "Committing pending native drop payload for browser " << identifier << ".";
+    IPC::Singleton.QueueWork([identifier, drop = std::move(drop)]() mutable {
+        IPC::Singleton.NotifyWindowDropped(identifier, drop.operationsMask, drop.isFile, drop.isLink, drop.isFragment, drop.filePaths, drop.fileNames, drop.linkUrl, drop.linkTitle, drop.linkMetadata, drop.fragmentText, drop.fragmentHtml, drop.fragmentBaseUrl);
+    });
 }
 
 //TODO: Implement Minimized, Maximized, Restored, KeyboardEvent, Resized, Moved

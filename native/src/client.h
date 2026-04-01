@@ -2,12 +2,16 @@
 #define CEF_CLIENT_H_
 
 #include "include/cef_client.h"
+#include "include/cef_drag_handler.h"
 #include "include/views/cef_browser_view.h"
 #include "include/wrapper/cef_resource_manager.h"
 #include "ipc.h"
 
 #include <future>
+#include <optional>
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #define DEFAULT_DEDEUPE_INPUT_MS 120
 
@@ -18,6 +22,7 @@ class Client : public CefClient,
     public CefFocusHandler,
     public CefContextMenuHandler,
     public CefKeyboardHandler,
+    public CefDragHandler,
     public CefRequestHandler,
     public CefResourceRequestHandler,
     public CefRenderHandler,
@@ -31,6 +36,7 @@ class Client : public CefClient,
     CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
     CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
     CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
+    CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
     CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
     CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request, bool is_navigation, bool is_download, const CefString& request_initiator, bool& disable_default_handling) override { return this; }
     CefRefPtr<CefRenderHandler> GetRenderHandler() override;
@@ -55,6 +61,8 @@ class Client : public CefClient,
     void OnBeforeContextMenu(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefContextMenuParams> params, CefRefPtr<CefMenuModel> model) override;
     // CefKeyboardHandler methods:
     bool OnKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle os_event) override;
+    // CefDragHandler methods:
+    bool OnDragEnter(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDragData> dragData, cef_drag_operations_mask_t mask) override;
     // CefResourceRequestHandler methods:
     CefRefPtr<CefResourceHandler> GetResourceHandler(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request) override;
     cef_return_value_t OnBeforeResourceLoad(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request, CefRefPtr<CefCallback> callback) override;
@@ -86,6 +94,52 @@ class Client : public CefClient,
  private:
     void SetTitle(CefRefPtr<CefBrowser> browser, const std::string& title);
     bool EnsureDevToolsRegistration(CefRefPtr<CefBrowser> browser);
+    void ClearPendingDrop();
+    void CommitPendingDrop(CefRefPtr<CefBrowser> browser);
+
+    struct PendingDropData {
+        int32_t operationsMask = 0;
+        bool isFile = false;
+        bool isLink = false;
+        bool isFragment = false;
+        std::vector<std::string> filePaths;
+        std::vector<std::string> fileNames;
+        std::optional<std::string> linkUrl;
+        std::optional<std::string> linkTitle;
+        std::optional<std::string> linkMetadata;
+        std::optional<std::string> fragmentText;
+        std::optional<std::string> fragmentHtml;
+        std::optional<std::string> fragmentBaseUrl;
+
+        bool HasData() const {
+            return !filePaths.empty() ||
+                   !fileNames.empty() ||
+                   linkUrl.has_value() ||
+                   linkTitle.has_value() ||
+                   linkMetadata.has_value() ||
+                   fragmentText.has_value() ||
+                   fragmentHtml.has_value() ||
+                   fragmentBaseUrl.has_value() ||
+                   isFile ||
+                   isLink ||
+                   isFragment;
+        }
+
+        void Clear() {
+            operationsMask = 0;
+            isFile = false;
+            isLink = false;
+            isFragment = false;
+            filePaths.clear();
+            fileNames.clear();
+            linkUrl.reset();
+            linkTitle.reset();
+            linkMetadata.reset();
+            fragmentText.reset();
+            fragmentHtml.reset();
+            fragmentBaseUrl.reset();
+        }
+    };
 
     std::map<int32_t, std::shared_ptr<std::promise<std::optional<IPCDevToolsMethodResult>>>> _devToolsMethodResults; 
     CefRefPtr<CefRegistration> _devToolsRegistration = nullptr;
@@ -106,6 +160,7 @@ class Client : public CefClient,
     std::unordered_set<std::string> _modifyRequestsSet;
     std::mutex _devToolsEventMethodsSetMutex;
     std::unordered_set<std::string> _devToolsEventMethodsSet;
+    PendingDropData _pendingDrop;
 
     bool _dedupeInput = false;
     int _dedupeInputMs = DEFAULT_DEDEUPE_INPUT_MS;
